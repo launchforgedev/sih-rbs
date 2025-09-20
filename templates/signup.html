@@ -4,12 +4,13 @@
     <title>Signup</title>
 </head>
 <body>
-    <h2>Signup</h2>
+    <h2>Bank Signup</h2>
     <form action="/signup_form" method="post">
-        Name: <input type="text" name="name"><br>
-        PIN: <input type="number" name="pin"><br>
-        Initial Balance: <input type="number" name="balance"><br>
+        Name: <input type="text" name="name" required><br><br>
+        PIN: <input type="number" name="pin" required><br><br>
+        Initial Balance: <input type="number" name="balance" value="0" required><br><br>
         <input type="submit" value="Signup">
     </form>
+    <p>Already have an account? <a href="/login">Login here</a></p>
 </body>
 </html>

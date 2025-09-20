@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transfer</title>
+</head>
+<body>
+    <h2>Transfer Money</h2>
+    <form action="/transfer_form" method="post">
+        <input type="hidden" name="sender_id" value="{{ user_id }}">
+        Receiver ID: <input type="number" name="receiver_id" required><br><br>
+        Amount: <input type="number" name="amount" required><br><br>
+        <input type="submit" value="Transfer">
+    </form>
+    <a href="/dashboard/{{ user_id }}">Back to Dashboard</a>
+</body>
+</html>
