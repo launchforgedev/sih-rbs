@@ -59,3 +59,39 @@ def transfer(sender_id, receiver_id, amount):
     conn.commit()
     conn.close()
     return True
+def get_user_by_name(name: str):
+    conn = sqlite3.connect("bank.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, email FROM users WHERE name=?", (name,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {"id": row[0], "name": row[1], "email": row[2]}
+    return None
+
+def set_reset_required(user_id):
+    conn = sqlite3.connect("bank.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET reset_required=1 WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def clear_reset_required(user_id):
+    conn = sqlite3.connect("bank.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET reset_required=0 WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def update_password(user_id, new_pin):
+    conn = sqlite3.connect("bank.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET pin=? WHERE id=?", (new_pin, user_id))
+    conn.commit()
+    conn.close()
+def update_pin(name, new_pin):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET pin=? WHERE name=?", (new_pin, name))
+    conn.commit()
+    conn.close()
