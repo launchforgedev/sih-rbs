@@ -5,6 +5,11 @@ import bank
 import joblib
 import pandas as pd
 from datetime import datetime
+import json
+import os
+from datetime import datetime
+from fastapi_utils.tasks import repeat_every
+OFFLINE_FILE = "offline_transactions.json"
 
 bank.init_db()
 app = FastAPI()
@@ -68,10 +73,50 @@ def transfer_page(request: Request, user_id: int):
 # Handle transfer form
 @app.post("/transfer_form")
 def transfer_form(sender_id: int = Form(...), receiver_id: int = Form(...), amount: float = Form(...)):
-    # fraud check
-    if check_fraud(sender_id, amount):
-        return {"status":"error","message":"Transaction flagged as fraud"}
-    success = bank.transfer(sender_id, receiver_id, amount)
-    if success:
-        return {"status":"success","message":"Transfer complete"}
-    return {"status":"error","message":"Insufficient funds or invalid user"}
+    try:
+        # Fraud check (optional)
+        if check_fraud(sender_id, amount):
+            return {"status":"error","message":"Transaction flagged as fraud"}
+        
+        success = bank.transfer(sender_id, receiver_id, amount)
+        if success:
+            return {"status":"success","message":"Transfer complete"}
+        return {"status":"error","message":"Insufficient funds or invalid user"}
+    
+    except Exception as e:
+        # Server offline / error → queue transaction
+        transaction = {
+            "sender_id": sender_id,
+            "receiver_id": receiver_id,
+            "amount": amount,
+            "timestamp": datetime.now().isoformat()
+        }
+        if os.path.exists(OFFLINE_FILE):
+            with open(OFFLINE_FILE, "r") as f:
+                data = json.load(f)
+        else:
+            data = []
+        data.append(transaction)
+        with open(OFFLINE_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        return {"status":"queued","message":"Server offline, transaction queued locally"}
+@app.on_event("startup")
+@repeat_every(seconds=60)  # every 60 seconds
+def process_offline_queue():
+    if not os.path.exists(OFFLINE_FILE):
+        return
+    with open(OFFLINE_FILE, "r") as f:
+        transactions = json.load(f)
+    success_list = []
+    for tx in transactions:
+        try:
+            success = bank.transfer(tx["sender_id"], tx["receiver_id"], tx["amount"])
+            if success:
+                success_list.append(tx)
+        except:
+            continue
+    transactions = [tx for tx in transactions if tx not in success_list]
+    with open(OFFLINE_FILE, "w") as f:
+        json.dump(transactions, f, indent=4)
+    if success_list:
+        print(f"Processed {len(success_list)} queued transactions ✅")
