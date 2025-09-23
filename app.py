@@ -18,7 +18,7 @@ from fastapi import Query
 from fastapi import Form
 from fastapi.responses import RedirectResponse
 reset_tokens = {}  # store temporary tokens in memory
-
+import sqlite3
 def generate_token(user):
     token = secrets.token_urlsafe(16)
     reset_tokens[user] = token
@@ -224,3 +224,20 @@ def reset_password_form(user: str = Form(...), token: str = Form(...), new_pin: 
 
         return {"status": "success", "message": "Password reset successful. You can now login."}
     return {"status": "error", "message": "Invalid or expired reset attempt."}
+@app.get("/transactions/{user_id}", response_class=HTMLResponse)
+def transaction_history(request: Request, user_id: int):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, sender_id, receiver_id, amount, timestamp FROM transactions "
+        "WHERE sender_id=? OR receiver_id=? ORDER BY timestamp DESC",
+        (user_id, user_id)
+    )
+    transactions = c.fetchall()
+    conn.close()
+
+    tx_list = [
+        {"id": t[0], "sender_id": t[1], "receiver_id": t[2], "amount": t[3], "timestamp": t[4]}
+        for t in transactions
+    ]
+    return templates.TemplateResponse("transactions.html", {"request": request, "transactions": tx_list})

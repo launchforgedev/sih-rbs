@@ -9,5 +9,10 @@
     <p>Balance: {{ balance }}</p>
     <a href="/transfer/{{ user_id }}">Make a transfer</a><br>
     <a href="/login">Logout</a>
+    
+<!-- Transaction history button -->
+<a href="/transactions/{{ user_id }}">
+    <button>View Transaction History</button>
+</a>
 </body>
 </html>

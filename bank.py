@@ -44,21 +44,8 @@ def get_balance(user_id):
     conn.close()
     return result[0] if result else None
 
-def transfer(sender_id, receiver_id, amount):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    # check sender balance
-    cursor.execute("SELECT balance FROM users WHERE id=?", (sender_id,))
-    sender_balance = cursor.fetchone()[0]
-    if sender_balance < amount:
-        conn.close()
-        return False
-    # update balances
-    cursor.execute("UPDATE users SET balance = balance - ? WHERE id=?", (amount, sender_id))
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, receiver_id))
-    conn.commit()
-    conn.close()
-    return True
+
+
 def get_user_by_name(name: str):
     conn = sqlite3.connect("bank.db")
     cursor = conn.cursor()
@@ -95,3 +82,45 @@ def update_pin(name, new_pin):
     c.execute("UPDATE users SET pin=? WHERE name=?", (new_pin, name))
     conn.commit()
     conn.close()
+import sqlite3
+from datetime import datetime
+
+DB_FILE = "bank.db"
+
+def log_transaction(sender_id, receiver_id, amount):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO transactions (sender_id, receiver_id, amount, timestamp) VALUES (?, ?, ?, ?)",
+        (sender_id, receiver_id, amount, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+def transfer(sender_id, receiver_id, amount):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Check sender balance
+    c.execute("SELECT balance FROM users WHERE id=?", (sender_id,))
+    sender = c.fetchone()
+    if not sender or sender[0] < amount:
+        conn.close()
+        return False
+
+    # Check receiver exists
+    c.execute("SELECT balance FROM users WHERE id=?", (receiver_id,))
+    receiver = c.fetchone()
+    if not receiver:
+        conn.close()
+        return False
+
+    # Update balances
+    c.execute("UPDATE users SET balance=? WHERE id=?", (sender[0]-amount, sender_id))
+    c.execute("UPDATE users SET balance=? WHERE id=?", (receiver[0]+amount, receiver_id))
+    conn.commit()
+    conn.close()
+
+    # Log transaction
+    log_transaction(sender_id, receiver_id, amount)
+    return True

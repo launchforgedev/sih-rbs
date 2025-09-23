@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transaction History</title>
+</head>
+<body>
+    <h2>Transaction History</h2>
+    <table border="1">
+        <tr>
+            <th>ID</th>
+            <th>Sender</th>
+            <th>Receiver</th>
+            <th>Amount</th>
+            <th>Timestamp</th>
+        </tr>
+        {% for tx in transactions %}
+        <tr>
+            <td>{{ tx.id }}</td>
+            <td>{{ tx.sender_id }}</td>
+            <td>{{ tx.receiver_id }}</td>
+            <td>{{ tx.amount }}</td>
+            <td>{{ tx.timestamp }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="/dashboard/{{ request.query_params.user_id }}"><button>Back to Dashboard</button></a>
+</body>
+</html>
