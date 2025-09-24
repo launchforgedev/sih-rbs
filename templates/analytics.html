@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transaction Analytics</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h2>Transaction Analytics</h2>
+    <div>
+        <h3>Monthly Spending Trend</h3>
+        {{ bar_chart|safe }}
+    </div>
+    <div>
+        <h3>Top 5 Recipients</h3>
+        {{ pie_chart|safe }}
+    </div>
+    <a href="/dashboard/{{ user_id }}"><button>Back to Dashboard</button></a>
+</body>
+</html>

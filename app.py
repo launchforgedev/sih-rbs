@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import os
 from datetime import datetime
-
+import requests
 from email_utils import send_email
 import secrets, datetime
 from fastapi.responses import RedirectResponse
@@ -22,7 +22,15 @@ import sqlite3
 from passlib.context import CryptContext
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from fastapi import Request
+from fastapi.templating import Jinja2Templates
+import sqlite3
+import pandas as pd
+import plotly.express as px
+import plotly.io as pio
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+templates = Jinja2Templates(directory="templates")
+DB_PATH = "bank.db"
 
 def verify_pin(plain_pin, hashed_pin):
     return pwd_context.verify(str(plain_pin), hashed_pin)
@@ -77,51 +85,39 @@ def login_page(request: Request):
 
 # Handle login form
 @app.post("/login_form")
-def login_form(request: Request,name: str = Form(...), pin: int = Form(...)):
-    client_ip = request.client.host
+def login_form( name: str = Form(...), pin: int = Form(...)):
+    
+
     # 1) initialize attempts for new user
     if name not in login_attempts:
         login_attempts[name] = MAX_ATTEMPTS
 
-    # 2) If already locked, tell the user to check email
-    if login_attempts[name] <= 0:
-        return {"status": "error", "message": "Account locked. Check your email for reset instructions."}
+    # 2) fetch user info from DB
+    user_info = bank.get_user_by_name(name)
 
-    # 3) fetch user info (used for email & id)
-    user_info = bank.get_user_by_name(name)  # should return dict or None
-
-    # 4) attempt login
-    user_id = bank.login(name, pin)
-    if user_id:
-        # success -> reset attempts and proceed
-        login_attempts[name] = MAX_ATTEMPTS
-
-        # optional: if user requires reset flag, redirect to reset page
-        if user_info and user_info.get("reset_required"):
-            return RedirectResponse(url=f"/reset_password/{user_id}", status_code=303)
-
-        return RedirectResponse(url=f"/dashboard/{user_id}", status_code=303)
-
-    # 5) failed login -> decrement attempts
-    login_attempts[name] -= 1
-
-    # 6) if now locked, generate token + email
+    # 3) check if account is locked
     if login_attempts[name] <= 0:
         if user_info and user_info.get("email"):
             try:
+                
+               
+
+                # token + reset link
                 token = generate_token(name)
                 reset_link = f"http://127.0.0.1:8000/reset_password?user={name}&token={token}"
+
+                # send reset email
                 send_email(
                     user_info["email"],
                     "Reset Your Bank PIN",
                     f"Your account has been locked due to repeated failed logins.\n\n"
+                    
                     f"Reset your PIN here (link valid for a short time):\n\n{reset_link}"
                 )
             except Exception as e:
-                # don't crash the route when email sending fails; log and continue
                 print("Email failed:", e)
 
-        # optional: set DB flag that reset is required (if you implemented it)
+        # optional: mark user for reset in DB
         try:
             if user_info:
                 bank.set_reset_required(user_info["id"])
@@ -130,7 +126,15 @@ def login_form(request: Request,name: str = Form(...), pin: int = Form(...)):
 
         return {"status": "error", "message": "Account locked. Reset link sent to your email if available."}
 
-    # 7) still has attempts left -> inform remaining attempts
+    # 4) check credentials
+    user_id = bank.login(name, pin)
+    if user_id:
+        # reset attempts on success
+        login_attempts[name] = MAX_ATTEMPTS
+        return RedirectResponse(url=f"/dashboard/{user_id}", status_code=303)
+
+    # 5) wrong credentials -> reduce attempts
+    login_attempts[name] -= 1
     return {
         "status": "error",
         "message": f"Invalid credentials. {login_attempts[name]} attempts remaining."
@@ -155,7 +159,7 @@ def transfer_form(
     sender_id: int = Form(...),
     receiver_id: int = Form(...),
     amount: float = Form(...),
-    upi_pin: int = Form(...)
+    
 ):
     try:
         
@@ -238,3 +242,35 @@ def transaction_history(request: Request, user_id: int):
         for t in transactions
     ]
     return templates.TemplateResponse("transactions.html", {"request": request, "transactions": tx_list})
+def get_transactions(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query(
+        "SELECT * FROM transactions WHERE sender_id=? OR receiver_id=?",
+        conn, params=(user_id, user_id)
+    )
+    conn.close()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    return df
+
+@app.get("/analytics/{user_id}")
+def analytics_page(request: Request, user_id: int):
+    df = get_transactions(user_id)
+
+    # Monthly spending
+    outgoing = df[df['sender_id'] == user_id]
+    monthly = outgoing.groupby(outgoing['timestamp'].dt.to_period('M'))['amount'].sum().reset_index()
+    monthly['timestamp'] = monthly['timestamp'].astype(str)
+    bar_fig = px.bar(monthly, x='timestamp', y='amount', title="Monthly Spending Trend")
+    bar_html = pio.to_html(bar_fig, full_html=False)
+
+    # Top 5 recipients
+    top5 = outgoing.groupby('receiver_id')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
+    pie_fig = px.pie(top5, names='receiver_id', values='amount', title="Top 5 Recipients")
+    pie_html = pio.to_html(pie_fig, full_html=False)
+
+    return templates.TemplateResponse("analytics.html", {
+        "request": request,
+        "bar_chart": bar_html,
+        "pie_chart": pie_html,
+        "user_id": user_id
+    })
