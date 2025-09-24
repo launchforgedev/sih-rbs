@@ -256,21 +256,29 @@ def get_transactions(user_id: int):
 def analytics_page(request: Request, user_id: int):
     df = get_transactions(user_id)
 
-    # Monthly spending
-    outgoing = df[df['sender_id'] == user_id]
-    monthly = outgoing.groupby(outgoing['timestamp'].dt.to_period('M'))['amount'].sum().reset_index()
-    monthly['timestamp'] = monthly['timestamp'].astype(str)
-    bar_fig = px.bar(monthly, x='timestamp', y='amount', title="Monthly Spending Trend")
-    bar_html = pio.to_html(bar_fig, full_html=False)
+    # --- Line chart: All transactions over time (sent + received) ---
+    df_sorted = df.sort_values('timestamp')
+    df_sorted['type'] = df_sorted.apply(lambda x: 'Sent' if x['sender_id'] == user_id else 'Received', axis=1)
+    
+    line_fig = px.line(
+        df_sorted, 
+        x='timestamp', 
+        y='amount', 
+        color='type',             # differentiate Sent vs Received
+        title="Transaction Amounts Over Time",
+        markers=True
+    )
+    line_html = pio.to_html(line_fig, full_html=False)
 
-    # Top 5 recipients
+    # --- Pie chart: Top 5 recipients by amount ---
+    outgoing = df[df['sender_id'] == user_id]
     top5 = outgoing.groupby('receiver_id')['amount'].sum().sort_values(ascending=False).head(5).reset_index()
-    pie_fig = px.pie(top5, names='receiver_id', values='amount', title="Top 5 Recipients")
+    pie_fig = px.pie(top5, names='receiver_id', values='amount', title="Top 5 Recipients by Amount")
     pie_html = pio.to_html(pie_fig, full_html=False)
 
     return templates.TemplateResponse("analytics.html", {
         "request": request,
-        "bar_chart": bar_html,
+        "line_chart": line_html,   # pass line chart
         "pie_chart": pie_html,
         "user_id": user_id
     })
