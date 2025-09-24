@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import os
 from datetime import datetime
-from fastapi_utils.tasks import repeat_every
+
 from email_utils import send_email
 import secrets, datetime
 from fastapi.responses import RedirectResponse
@@ -17,8 +17,15 @@ import secrets
 from fastapi import Query
 from fastapi import Form
 from fastapi.responses import RedirectResponse
-reset_tokens = {}  # store temporary tokens in memory
+reset_tokens = {} 
 import sqlite3
+from passlib.context import CryptContext
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_pin(plain_pin, hashed_pin):
+    return pwd_context.verify(str(plain_pin), hashed_pin)
 def generate_token(user):
     token = secrets.token_urlsafe(16)
     reset_tokens[user] = token
@@ -70,7 +77,8 @@ def login_page(request: Request):
 
 # Handle login form
 @app.post("/login_form")
-def login_form(name: str = Form(...), pin: int = Form(...)):
+def login_form(request: Request,name: str = Form(...), pin: int = Form(...)):
+    client_ip = request.client.host
     # 1) initialize attempts for new user
     if name not in login_attempts:
         login_attempts[name] = MAX_ATTEMPTS
@@ -143,19 +151,29 @@ def transfer_page(request: Request, user_id: int):
 
 # Handle transfer form
 @app.post("/transfer_form")
-def transfer_form(sender_id: int = Form(...), receiver_id: int = Form(...), amount: float = Form(...)):
+def transfer_form(
+    sender_id: int = Form(...),
+    receiver_id: int = Form(...),
+    amount: float = Form(...),
+    upi_pin: int = Form(...)
+):
     try:
-        # Fraud check (optional)
-        if check_fraud(sender_id, amount):
-            return {"status":"error","message":"Transaction flagged as fraud"}
         
+        
+
+        # Fraud detection (optional)
+        if check_fraud(sender_id, amount):
+            return {"status": "error", "message": "Transaction flagged as fraud"}
+
+        # Execute transfer
         success = bank.transfer(sender_id, receiver_id, amount)
+
         if success:
-            return {"status":"success","message":"Transfer complete"}
-        return {"status":"error","message":"Insufficient funds or invalid user"}
-    
+            return {"status": "success", "message": "Transfer complete"}
+        return {"status": "error", "message": "Insufficient funds or invalid user"}
+
     except Exception as e:
-        # Server offline / error → queue transaction
+        # Queue transaction if server is down
         transaction = {
             "sender_id": sender_id,
             "receiver_id": receiver_id,
@@ -170,28 +188,7 @@ def transfer_form(sender_id: int = Form(...), receiver_id: int = Form(...), amou
         data.append(transaction)
         with open(OFFLINE_FILE, "w") as f:
             json.dump(data, f, indent=4)
-        return {"status":"queued","message":"Server offline, transaction queued locally"}
-@app.on_event("startup")
-@repeat_every(seconds=60)  # every 60 seconds
-def process_offline_queue():
-    if not os.path.exists(OFFLINE_FILE):
-        return
-    with open(OFFLINE_FILE, "r") as f:
-        transactions = json.load(f)
-    success_list = []
-    for tx in transactions:
-        try:
-            success = bank.transfer(tx["sender_id"], tx["receiver_id"], tx["amount"])
-            if success:
-                success_list.append(tx)
-        except:
-            continue
-    transactions = [tx for tx in transactions if tx not in success_list]
-    with open(OFFLINE_FILE, "w") as f:
-        json.dump(transactions, f, indent=4)
-    if success_list:
-        print(f"Processed {len(success_list)} queued transactions ✅")
-
+        return {"status": "queued", "message": "Server offline, transaction queued locally"}
 @app.get("/reset_password/{token}")
 def reset_password_form(token: str):
     # Serve HTML form
