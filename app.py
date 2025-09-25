@@ -282,3 +282,54 @@ def analytics_page(request: Request, user_id: int):
         "pie_chart": pie_html,
         "user_id": user_id
     })
+from fastapi import Body
+from fastapi.responses import JSONResponse
+def get_last_transaction(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, sender_id, receiver_id, amount, timestamp FROM transactions "
+        "WHERE sender_id=? OR receiver_id=? ORDER BY timestamp DESC LIMIT 1",
+        (user_id, user_id)
+    )
+    txn = c.fetchone()
+    conn.close()
+    if txn:
+        return {"id": txn[0], "sender_id": txn[1], "receiver_id": txn[2], "amount": txn[3], "timestamp": txn[4]}
+    return None
+@app.get("/voice-assistant/{user_id}", response_class=HTMLResponse)
+def voice_assistant_page(request: Request, user_id: int):
+    # Render template and pass user_id so frontend knows the sender id
+    return templates.TemplateResponse("voice_assistant.html", {"request": request, "user_id": user_id})
+# Check balance
+@app.post("/api/voice/check_balance")
+def api_check_balance(payload: dict = Body(...)):
+    user_id = int(payload.get("user_id"))
+    bal = bank.get_balance(user_id)
+    return {"status": "ok", "balance": bal}
+
+# Get last transaction
+@app.post("/api/voice/last_transaction")
+def api_last_transaction(payload: dict = Body(...)):
+    user_id = int(payload.get("user_id"))
+    txn = get_last_transaction(user_id)
+    if txn:
+        return {"status": "ok", "transaction": txn}
+    return {"status": "empty", "message": "No transactions found."}
+
+# Transfer money
+@app.post("/api/voice/transfer")
+def api_transfer(payload: dict = Body(...)):
+    try:
+        sender_id = int(payload.get("sender_id"))
+        receiver_id = int(payload.get("receiver_id"))
+        amount = float(payload.get("amount"))
+    except Exception:
+        return JSONResponse({"status": "error", "message": "Invalid input"}, status_code=400)
+
+    # Optional: verify sender has enough balance
+    success = bank.transfer(sender_id, receiver_id, amount)
+    if success:
+        return {"status": "ok", "message": f"Transferred {amount} to user {receiver_id}"}
+    else:
+        return {"status": "error", "message": "Insufficient funds or invalid user"}

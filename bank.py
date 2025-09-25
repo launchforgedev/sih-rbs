@@ -124,3 +124,16 @@ def transfer(sender_id, receiver_id, amount):
     # Log transaction
     log_transaction(sender_id, receiver_id, amount)
     return True
+def get_last_transaction(user_id: int):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT sender_id, receiver_id, amount, timestamp FROM transactions "
+        "WHERE sender_id=? OR receiver_id=? ORDER BY timestamp DESC LIMIT 1",
+        (user_id, user_id)
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"sender_id": row[0], "receiver_id": row[1], "amount": row[2], "timestamp": row[3]}
+    return None

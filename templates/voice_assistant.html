@@ -1,0 +1,222 @@
+<!-- templates/voice_assistant.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Voice Assistant - Smart Mode</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 8px; max-width: 720px; margin: auto; }
+    .status { margin-top: 12px; padding: 8px; background:#f7f7f7; border-radius:6px; }
+    button { padding:8px 12px; margin:6px; }
+    #log { height: 220px; overflow:auto; background:#111; color:#fff; padding:10px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Smart Voice Mode</h2>
+    <p>Commands supported: <b>check balance</b>, <b>transfer</b>, <b>last transaction</b>, <b>exit</b>.</p>
+
+    <!-- user id from server -->
+    <div>Logged in as user: <strong id="userId">{{ user_id }}</strong></div>
+
+    <div style="margin-top:12px;">
+      <button id="startBtn">Start Voice Assistant</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <button id="helpBtn">Show Commands</button>
+      <a href="/dashboard/{{ user_id }}"><button>Back to Dashboard</button></a>
+    </div>
+
+    <div class="status" id="status">Status: idle</div>
+    <div id="log"></div>
+  </div>
+
+<script>
+(() => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const synth = window.speechSynthesis;
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const helpBtn = document.getElementById('helpBtn');
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  const userId = document.getElementById('userId').innerText;
+
+  if (!SpeechRecognition) {
+    statusEl.innerText = 'Status: SpeechRecognition not supported. Use Chrome/Edge.';
+    startBtn.disabled = true;
+  }
+
+  let recog = null;
+  let listening = false;
+  let expecting = null;
+  let pendingTransfer = { receiver: null, amount: null };
+  let active = false; // controls continuous listening
+
+  function log(msg) {
+    const t = new Date().toLocaleTimeString();
+    logEl.innerHTML += `[${t}] ${msg}<br>`;
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log(msg);
+  }
+
+  function speak(text) {
+    log('Assistant: ' + text);
+    if (!synth) return;
+    const ut = new SpeechSynthesisUtterance(text);
+    ut.lang = 'en-IN';
+    synth.cancel();
+    synth.speak(ut);
+  }
+
+  function startRecognition() {
+    if (!active) return;
+    recog = new SpeechRecognition();
+    recog.lang = 'en-IN';
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+
+    recog.onstart = () => { listening = true; statusEl.innerText = 'Status: listening...'; log('Listening...'); };
+    recog.onend = () => { 
+      listening = false; 
+      statusEl.innerText = 'Status: idle'; 
+      log('Stopped listening'); 
+      if (active) startRecognition(); // continuous restart
+    };
+    recog.onerror = (e) => { log('Recognition error: ' + e.error); if (active) startRecognition(); };
+
+    recog.onresult = (evt) => {
+      const text = evt.results[0][0].transcript.trim().toLowerCase();
+      log('Heard: ' + text);
+      handleSpokenText(text);
+    };
+
+    recog.start();
+  }
+
+  function stopRecognition() {
+    active = false;
+    if (recog) {
+      try { recog.stop(); } catch(e){}
+      recog = null;
+    }
+    listening = false;
+    statusEl.innerText = 'Status: stopped';
+  }
+
+  function resetExpect() {
+    expecting = 'command';
+    pendingTransfer = { receiver: null, amount: null };
+  }
+
+  function handleSpokenText(text) {
+    if (!expecting) resetExpect();
+
+    if (expecting === 'receiver') {
+      const digits = text.match(/\d+/);
+      if (digits) {
+        pendingTransfer.receiver = parseInt(digits[0]);
+        speak(`Receiver set to ${pendingTransfer.receiver}. Now say the amount in rupees.`);
+        expecting = 'amount';
+        return;
+      } else {
+        speak('Invalid receiver id, please say numbers only.');
+        return;
+      }
+    }
+
+    if (expecting === 'amount') {
+      const m = text.match(/(\d+(\.\d+)?)/);
+      if (m) {
+        pendingTransfer.amount = parseFloat(m[1]);
+        speak(`Transferring ${pendingTransfer.amount} rupees to user ${pendingTransfer.receiver}. Say yes to confirm or no to cancel.`);
+        expecting = 'confirm_transfer';
+        return;
+      } else {
+        speak('Amount not understood. Please repeat.');
+        return;
+      }
+    }
+
+    if (expecting === 'confirm_transfer') {
+      if (text.includes('yes')) {
+        doTransfer();
+      } else {
+        speak('Transfer cancelled.');
+        expecting = 'command';
+      }
+      return;
+    }
+
+    // Command handling
+    if (text.includes('balance')) { doCheckBalance(); return; }
+    if (text.includes('last') || text.includes('recent') || text.includes('transaction')) { doLastTransaction(); return; }
+    if (text.includes('transfer')) { expecting = 'receiver'; speak('Please say the receiver id.'); return; }
+    if (text.includes('exit')) { speak('Goodbye!'); stopRecognition(); setTimeout(()=> window.location.href = `/dashboard/${userId}`, 1000); return; }
+
+    speak("Sorry, command not recognized. Say: check balance, transfer, last transaction, or exit.");
+  }
+
+  async function doCheckBalance() {
+    speak('Checking balance...');
+    try {
+      const resp = await fetch('/api/voice/check_balance', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({user_id:userId})
+      });
+      const j = await resp.json();
+      if(j.status==='ok') speak(`Your balance is ${j.balance} rupees.`);
+      else speak('Unable to fetch balance.');
+    } catch(e){ log('Error: '+e); speak('Network error.'); }
+  }
+
+  async function doLastTransaction() {
+    speak('Fetching last transaction...');
+    try {
+      const resp = await fetch('/api/voice/last_transaction', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({user_id:userId})
+      });
+      const j = await resp.json();
+      if(j.status==='ok' && j.transaction){
+        const t = j.transaction;
+        const sentOrRecv = (t.sender_id == userId) ? 'Sent' : 'Received';
+        speak(`${sentOrRecv} ${t.amount} rupees ${sentOrRecv==='Sent'?'to':'from'} user ${sentOrRecv==='Sent'?t.receiver_id:t.sender_id} on ${new Date(t.timestamp).toLocaleString()}`);
+      } else speak('No recent transactions found.');
+    } catch(e){ log('Error: '+e); speak('Network error.'); }
+  }
+
+  async function doTransfer() {
+    const payload = { sender_id: parseInt(userId), receiver_id: pendingTransfer.receiver, amount: pendingTransfer.amount };
+    speak('Processing transfer...');
+    try {
+      const resp = await fetch('/api/voice/transfer', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+      });
+      const j = await resp.json();
+      if(j.status==='ok') speak(j.message);
+      else speak('Transfer failed: '+(j.message||'unknown'));
+    } catch(e){ log('Error: '+e); speak('Network error.'); }
+    pendingTransfer = { receiver:null, amount:null };
+    expecting = 'command';
+  }
+
+  startBtn.addEventListener('click', () => {
+    startBtn.disabled = true; stopBtn.disabled = false;
+    active = true;
+    resetExpect();
+    speak('Voice assistant started. Say a command.');
+    startRecognition();
+  });
+
+  stopBtn.addEventListener('click', () => {
+    startBtn.disabled = false; stopBtn.disabled = true;
+    speak('Voice assistant stopped.');
+    stopRecognition();
+  });
+
+  helpBtn.addEventListener('click', ()=> alert('Commands: check balance, transfer, last transaction, exit. For transfer, assistant asks receiver id then amount.'));
+  log('Voice assistant loaded. Click Start to begin.');
+})();
+</script>
+
+</body>
+</html>
