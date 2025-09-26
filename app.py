@@ -333,3 +333,50 @@ def api_transfer(payload: dict = Body(...)):
         return {"status": "ok", "message": f"Transferred {amount} to user {receiver_id}"}
     else:
         return {"status": "error", "message": "Insufficient funds or invalid user"}
+# Admin login page
+@app.get("/admin_login", response_class=HTMLResponse)
+def admin_login_page(request: Request):
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+@app.post("/admin_login_form")
+def admin_login_form(username: str = Form(...), password: int = Form(...)):
+    try:
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("SELECT id FROM admin WHERE username=? AND password=?", (username, password))
+        admin = c.fetchone()
+        conn.close()
+
+        if admin:
+            return RedirectResponse(url=f"/admin_dashboard/{admin[0]}", status_code=303)
+        else:
+            return {"status": "error", "message": "Invalid admin credentials"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin_dashboard/{admin_id}", response_class=HTMLResponse)
+def admin_dashboard(request: Request, admin_id: int):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute("SELECT id, name, balance FROM users")
+    users = c.fetchall()
+    conn.close()
+    return templates.TemplateResponse("admin_dashboard.html", {"request": request, "users": users})
+# Admin dashboard
+@app.get("/admin_dashboard/{admin_id}", response_class=HTMLResponse)
+def admin_dashboard(request: Request, admin_id: int):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute("SELECT id, name, balance FROM users")
+    users = c.fetchall()
+    conn.close()
+    return templates.TemplateResponse("admin_dashboard.html", {"request": request, "users": users})
+
+# Admin add amount to user
+@app.post("/admin_add_amount")
+def admin_add_amount(user_id: int = Form(...), amount: float = Form(...)):
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url=f"/admin_dashboard/1", status_code=303)  # assuming admin_id=1

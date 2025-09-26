@@ -137,3 +137,28 @@ def get_last_transaction(user_id: int):
     if row:
         return {"sender_id": row[0], "receiver_id": row[1], "amount": row[2], "timestamp": row[3]}
     return None
+def init_admin_db():
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS admin (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password INTEGER NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+# Create default admin (run once)
+def create_admin():
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO admin (username, password) VALUES (?, ?)", ("admin", 1234))
+        conn.commit()
+    except:
+        pass
+    finally:
+        conn.close()
+
